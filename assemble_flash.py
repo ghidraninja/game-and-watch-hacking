@@ -1,48 +1,39 @@
 #!/usr/bin/env python3
 
 import argparse
-import sys
 
-parser = argparse.ArgumentParser(description='Combine a flash image, an XOR-stream and a modified ROM into a flashable image.')
-parser.add_argument('flash', nargs=1, type=argparse.FileType('rb'))
-parser.add_argument('xor_key', nargs=1, type=argparse.FileType('rb'))
+# Get arguments
+parser = argparse.ArgumentParser()
+parser.add_argument('flash',       nargs=1, type=argparse.FileType('rb'))
+parser.add_argument('xor_key',     nargs=1, type=argparse.FileType('rb'))
 parser.add_argument('patched_rom', nargs=1, type=argparse.FileType('rb'))
-parser.add_argument('flash_out', nargs=1, type=argparse.FileType('wb'))
+parser.add_argument('flash_out',   nargs=1, type=argparse.FileType('wb'))
 parser.add_argument('--length', '-l', type=int, default=40*1024)
 args = parser.parse_args()
 
-LEN=args.length
-ram_dump = args.patched_rom[0].read(LEN)
+patched = args.patched_rom[0].read(args.length)
 
-
-if len(ram_dump) != args.length:
-    print("Adding Padding")
-    ram_dump = ram_dump + (b"\x00" * (args.length - len(ram_dump)))
+# Pad the patched ROM to be the length specified in the command line
+if len(patched) != args.length:
+  print("Adding Padding")
+  patched += b"\x00" * (args.length - len(ram_dump))
 
 xor_key = args.xor_key[0].read()
 
-flash_start = args.flash[0].read(0x1e60)
-flash_content = args.flash[0].read(LEN)
-flash_end = args.flash[0].read()
+# Deconstruct the original flash file
+flash_start   = args.flash[0].read(0x1E60)
+flash_content = args.flash[0].read(args.length)  # Never used. Consider seeking instead
+flash_end     = args.flash[0].read()
 
-if len(xor_key) != len(ram_dump):
-    print("FAILED, XOR key has wrong size.")
-    sys.exit(-1)
+def xor(s1, s2):
+  """XOR 2 byte streams together"""
+  assert(len(s1) == len(s2))
+  return bytearray([
+    b1 ^ b2
+    for b1, b2 in zip(s1, s2)
+  ])
 
-def xor(b1, b2):
-    result = bytearray()
-    for b1, b2 in zip(b1, b2):
-        result.append(b1 ^ b2)
-    return result
-
-xored_content = xor(ram_dump, xor_key)
-
+# Reconstruct the modified flash file
 args.flash_out[0].write(flash_start)
-args.flash_out[0].write(xored_content)
+args.flash_out[0].write(xor(patched, xor_key))
 args.flash_out[0].write(flash_end)
-
-print("\n**********************")
-print(  "New flash image ready!")
-print("**********************")
-
-
